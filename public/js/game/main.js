@@ -3,8 +3,6 @@ enchant();
 var WIDTH = 500;
 var HEIGHT = 500;
 
-var MOVE_SPEED = 5;
-
 var playerData = {
     player: 0,
     x: 0,
@@ -21,16 +19,12 @@ var players = [];
 var players_num = 2;
 
 var now_oni = 0;
-
 var game;
-
-var sec;
 var label2;
-
 var dash_flag = 0;
 var dash_count = 0;
-
 var DASH_MAX = 50;
+var time_count = 3;
 
 function game_plogram() {
     game = new Core(WIDTH, HEIGHT);
@@ -38,6 +32,8 @@ function game_plogram() {
     game.preload("/js/game/chara0.png");
     game.preload("/js/game/chara0_2.png"); //鬼
     game.preload("/js/game/map.png");
+
+    var MOVE_SPEED = 5;
 
     game.onload = function(){
         var bg1 = new Sprite(500, 500);
@@ -213,7 +209,7 @@ function game_plogram() {
                          label3.text = dash_count;
                     }
 
-                    if(this.within(players[now_oni],10) && now_oni != con_player){
+                    if(this.within(players[now_oni],30) && now_oni != con_player){
                         // label2.text = "HIT";
                         console.log('Hit');
                         socket.emit('send gameset');
@@ -229,7 +225,7 @@ function game_plogram() {
 
 
 function connect_socket() {
-  console.log("room.js");
+  // console.log("room.js");
   var messageLogs = {};
 
   // ページロード時の処理
@@ -242,17 +238,38 @@ function connect_socket() {
 // 本番用
     socket = io.connect();
 
+    socket.on('connected', function(data) {
+      socket.emit('check credential', minichat);
+    });
+    // 認証成功
+    socket.on('credential ok', function(data) {
+      socket.emit('request log', {});
+    });
+    // 認証失敗：ルーム名/パスワードの不一致
+    socket.on('invalid credential', function(data) {
+      authRetry('ルーム名/パスワードが不正です');
+    });
+    // 認証失敗：同名のルームがすでに存在
+    socket.on('room exists', function(data) {
+      authRetry('同名のルームがすでに存在します');
+    });
+    // 認証失敗：ルームに同名のユーザーが存在
+    socket.on('userName exists', function(data) {
+      authRetry('その名前はすでに使われています');
+    });
+
 
     // スタートの合図受信
     socket.on('game start', function (player_num) {
         // ３秒カウントダウンしてからとか
         $("#GameStart").val("Game started");
+        $("#GameStart").addClass('disabled');
         players_num = player_num;
-        gameStartFlag = 1;
+        // gameStartFlag = 1;
+        countDown();
         console.log("game startttttttttt");
-        game_plogram();
-
-        sec = setTimeout(timeHnd,10000);
+        setTimeout('game_plogram();', 3000);
+        setTimeout(timeHnd,10000);
     });
 
 
@@ -290,7 +307,82 @@ function connect_socket() {
         setTimeout(del,5000);
     });
 
-  }); // document.ready()ここまで
+    socket.on('request log', function(data, callback) {
+      callback(messageLogs);
+    });
+    // チャットログの更新
+    socket.on('update log', function(log) {
+      Object.keys(log).forEach(function (key) {
+        messageLogs[key] = log[key];
+      });
+      updateMessage();
+    });
+    // チャットルームへのメンバー追加
+    socket.on('update members', function (members) {
+      $('#members').empty();
+      for (var i = 0; i < members.length; i++) {
+        var html = '<li>' + members[i] + '</li>';
+        $('#members').append(html);
+      }
+    });
+
+    // チャットメッセージ受信
+    socket.on('push message', function (message) {
+      messageLogs[message.id] = message;
+      prependMessage(message);
+    });
+
+        // チャットメッセージ送信
+    $('#post-message').on('click', function () {
+      var message = {
+        from: minichat.userName,
+        body: $('#message').val(),
+        roomId: minichat.roomId
+      };
+      socket.emit('say', message, function () {
+        // メッセージの送信に成功したらテキストボックスをクリアする
+        $('#message').val('');
+      });
+    });
+    $('#credential-dialog-form').on('submit', function() {
+      $('#credentialDialog').modal('hide');
+      socket.emit('hash password', $('#new-password').val(), function (hashedPassword) {
+        minichat.roomName = $('#new-room').val();
+        minichat.userName = $('#new-name').val();
+        minichat.password = hashedPassword;
+        minichat.roomId = minichat.roomName + minichat.password;
+        socket.emit('check credential', minichat);
+      });
+      return false;
+    });
+
+    function authRetry(message) {
+        $('#credential-dialog-header').text(message);    
+        $('#new-room').val(minichat.roomName);
+        $('#new-name').val(minichat.userName);
+        $('#credentialDialog').modal('show');
+    }
+
+    function prependMessage(message) {
+        var html = '<div class="message" id="' + message.id + '">'
+          + '<p class="postdate pull-right">' + message.date + '</p>'
+          + '<p class="author">' + message.from + '：</p>'
+          + '<p class="comment">' + message.body + '</p>'
+          + '</div>';
+        $('#messages').prepend(html);
+    }
+
+    function updateMessage() {
+        $('#messages').empty();
+        var keys = Object.keys(messageLogs);
+        keys.sort();
+        keys.forEach(function (key) {
+          prependMessage(messageLogs[key]);
+        });
+    }
+
+
+  }); // document.ready()ここまで    
 }
 
 function del(){
@@ -302,22 +394,40 @@ function timeHnd(){
     if(con_player == 0){
         socket.emit('send onitime');
     }
-     sec = setTimeout(timeHnd,10000);
+     setTimeout(timeHnd,10000);
 }
+
+function countDown(){
+  if(time_count == 0){
+    gameStartFlag = 1;
+    $("#timetostart").text("Start!!!");
+    setTimeout('countDown()', 3000);
+    time_count--;
+  }else if(time_count == -1){
+    time_count = 3;
+  }else{
+    str_time = "" + time_count;
+    $('#timetostart').text(str_time);
+    time_count--;
+    setTimeout('countDown()', 1000);
+  }
+}
+
 
 window.onload = function(){
 
     connect_socket();
-    document.getElementById('Rady').onclick = function(){
-      $("#Rady").val("waiting…");
+    document.getElementById('Ready').onclick = function(){
+      $("#Ready").text("waiting…");
 
-        socket.emit('Rady', function () {
-            console.log("RadyPushed");
+        socket.emit('Ready', function () {
+            console.log("ReadyPushed");
         });
-        document.getElementById('Rady').disabled = true;
+         $("#Ready").addClass('disabled');
+        // document.getElementById('Ready').disabled = true;
     };
     document.getElementById('GameStart').onclick = function(){
-      $("#GameStart").val("waiting opponent");
+      // $("#GameStart").val("waiting opponent");
         socket.emit('startPushed', function () {
             console.log("startPushed");
         });

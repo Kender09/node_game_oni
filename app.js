@@ -28,6 +28,8 @@ app.configure('development', function(){
 });
 
 app.get('/', routes.index);
+app.post('/room', routes.room);
+app.post('/othello_room', routes.othello_room);
 
 // httpサーバの作成
 var server = http.createServer(app);
